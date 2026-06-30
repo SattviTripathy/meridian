@@ -24,6 +24,7 @@
   let sortKey = 'vri';
   const filters = { tier: 'all', sub: 'all', status: 'all', q: '', minVri: 0 };
   let optimizer = { budget: 500000, objective: 'risk', result: null };
+  let chatLog = []; // Ask Meridian conversation (in-memory, this session)
 
   // apply persisted work statuses
   DATA.spans.forEach(s => {
@@ -62,7 +63,7 @@
   }
   function ttvClass(m) { return m <= 6 ? 'ttv-urgent' : m <= 18 ? 'ttv-soon' : 'ttv-ok'; }
   function ttvText(m) { return m >= 999 ? 'stable' : m <= 0 ? 'in violation' : m < 24 ? m + ' mo' : (m / 12).toFixed(1) + ' yr'; }
-  function tierChip(t) { return `<span class="chip t${t}">Tier ${t}${t === 3 ? ' \u{1F525}' : ''}</span>`; }
+  function tierChip(t) { return `<span class="chip t${t}">Tier ${t}</span>`; }
 
   // ---------- scoring helpers ----------
   function recomputeAll() {
@@ -955,6 +956,384 @@
   }
 
   // ========================================================================
+  //  VIEW: FAQ
+  // ========================================================================
+  function renderFaq() {
+    const v = view$(); v.className = 'view';
+    const u = DATA.utility;
+    const groups = [
+      {
+        title: 'About Meridian',
+        items: [
+          ['What is Meridian?',
+            `A condition-based <b>vegetation risk intelligence</b> tool for electric utilities. Instead of trimming every circuit on a fixed calendar cycle, Meridian scores each line span by how dangerous its vegetation is right now, forecasts when it will breach required clearance, and helps you spend the next trimming dollar where it buys down the most risk.`],
+          ['Who is it for?',
+            `Utility vegetation management (UVM) planners, reliability and wildfire-mitigation teams, and anyone who has to turn a limited trimming budget into a defensible work plan.`],
+          ['Is this real utility data?',
+            `No. Every span, circuit, customer count, and clearance figure is <b>synthetic, seeded, and fictional</b> — generated deterministically in the browser. The modelled utility (<i>${esc(u.name)}</i>, ${esc(u.territory)}) does not exist. Nothing here reflects a real grid.`]
+        ]
+      },
+      {
+        title: 'The risk model',
+        items: [
+          ['What is the Vegetation Risk Index (VRI)?',
+            `A 0&ndash;100 score for each span, blending five normalized factors: <b>encroachment</b> (tree-to-conductor clearance vs. the required envelope), <b>growth</b> (species growth rate &times; time since the last trim), <b>fire threat</b> (CPUC HFTD tier), <b>criticality</b> (customers downstream + voltage class), and <b>access</b> (terrain slope and crew reachability). You can re-weight all five under <b>Scenario compare</b>.`],
+          ['What does "time to violation" mean?',
+            `Clearance headroom &divide; growth rate &mdash; it converts a static score into a deadline. A span with 6&nbsp;ft of headroom growing at 3&nbsp;ft/yr breaches its required clearance in about 24&nbsp;months. Spans already inside the required envelope show as "in violation".`],
+          ['How does the budget optimizer choose what to fund?',
+            `It ranks every open span by <b>risk bought down per dollar</b> and greedily funds the most efficient spans until the budget runs out. The spend-efficiency frontier shows why this beats a fixed cycle: the first dollars clear the worst spans, so the early slope is steep.`],
+          ['Can I change how risk is scored?',
+            `Yes. Open <b>Scenario compare</b>, drag the weight sliders, and save the result as a named scenario. The dashboard, optimizer, and analytics all recompute live, and you can put two scenarios head-to-head.`],
+          ['What are HFTD tiers, GO 95, and FAC-003?',
+            `<b>HFTD</b> is the CPUC High Fire-Threat District map (Tier 1/2/3, escalating fire risk). <b>GO 95</b> is the CPUC general order setting overhead-line clearance rules, and <b>NERC FAC-003</b> is the federal transmission vegetation standard. The Compliance register frames findings against these for realism &mdash; it is an illustration, not legal advice.`]
+        ]
+      },
+      {
+        title: 'Ask Meridian & your data',
+        items: [
+          ['Does "Ask Meridian" use ChatGPT or a cloud AI?',
+            `No. It is an <b>on-device natural-language engine</b> &mdash; a parser written in JavaScript that runs entirely in your browser and queries the data already loaded on the page. There is <b>no API key, no payment, and no network call</b> involved.`],
+          ['Is any of my data sent to a server?',
+            `No. Meridian has no backend. All data is generated in your browser and your work state lives in <code>localStorage</code> on your device. Nothing you type into the assistant leaves your machine.`],
+          ['What can I ask the assistant?',
+            `Try things like "which spans need immediate trimming?", "show the riskiest circuits", "why is SPN-1451 ranked so high?", "how much to clear all violations?", or "give me insights on the network". Answer rows are clickable and jump you to the matching span or circuit on the dashboard.`]
+        ]
+      },
+      {
+        title: 'Using & deploying',
+        items: [
+          ['Does it work offline?',
+            `Yes. Meridian is an installable PWA with a service worker that caches the app shell, so it loads and runs without a connection. Only the optional satellite-style basemap (the "Map" toggle) needs the network; the schematic view works fully offline.`],
+          ['How do I reset the demo?',
+            `Open <b>About</b> and click <i>Reset demo</i>, which clears your saved work orders, scenarios, and weights. Because the data is seeded, you always get the same starting network back.`],
+          ['What is it built with?',
+            `Plain static HTML, CSS, and vanilla JavaScript &mdash; no build step and no framework. The geographic basemap uses Leaflet with OpenStreetMap / CARTO tiles; everything else is hand-rolled SVG. The whole app is a handful of files you can host anywhere.`]
+        ]
+      }
+    ];
+    v.innerHTML = `<div class="faq" style="max-width:820px">
+      <p class="muted" style="margin:0 0 4px">Common questions about what Meridian is, how its risk model works, and how the on-device assistant handles your data.</p>
+      ${groups.map(g => `<div class="faq-sec">${g.title}</div>
+        <div class="faq-list">${g.items.map((it, i) => `
+          <details${g === groups[0] && i === 0 ? ' open' : ''}><summary>${it[0]}</summary><div class="faq-a">${it[1]}</div></details>`).join('')}
+        </div>`).join('')}
+      <p class="legend-note" style="margin-top:18px">Meridian is an exploratory prototype on synthetic data. Still curious? Ask the on-device assistant under <b>Ask Meridian</b>.</p>
+    </div>`;
+  }
+
+  // ========================================================================
+  //  VIEW: Ask Meridian  — on-device natural-language assistant
+  //  Pure client-side intent parser over the live risk model. No backend,
+  //  no API key, no network — answers reflect current work state + weights.
+  // ========================================================================
+  const SUGGESTIONS = [
+    'Which spans need immediate trimming?',
+    'Show the riskiest circuits',
+    'What are the Tier 3 fire-threat spans?',
+    'Give me insights on the network',
+    'How much to clear all violations?',
+    'Which spans breach within 6 months?'
+  ];
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+  function reply(text, body) { return `<div class="ans-text">${text}</div>${body || ''}`; }
+
+  // ---- result renderers (clickable; jump back into the dashboard) ----
+  function askSpanRows(spans, limit) {
+    limit = limit || 8;
+    const rows = spans.slice(0, limit).map(s => `
+      <div class="ans-row" data-span="${s.id}">
+        <span class="vri" style="background:${vriColor(s.vri)};width:30px;height:22px;font-size:11px">${s.vri}</span>
+        <div class="ans-main"><b>${s.id}</b> <span class="muted">· ${esc(s.circuit)}</span>
+          <div class="ans-sub">${tierChip(s.tier)} <span>${esc(s.species)}</span> <span>${num(s.customers)} cust</span> <span class="${ttvClass(s.ttv)}">${ttvText(s.ttv)}</span> <span>${money(s.cost)}</span></div></div>
+      </div>`).join('');
+    const more = spans.length > limit ? `<div class="muted ans-more">+ ${num(spans.length - limit)} more match — open the dashboard to see them all.</div>` : '';
+    return `<div class="ans-list">${rows}${more}</div>`;
+  }
+  function askCircuitRows(rows, limit) {
+    limit = limit || 8;
+    return `<div class="ans-list">${rows.slice(0, limit).map(r => `
+      <div class="ans-row" data-circuit="${r.id}">
+        <span class="vri" style="background:${vriColor(r.avg)};width:30px;height:22px;font-size:11px">${r.avg}</span>
+        <div class="ans-main"><b>${esc(r.id)}</b> <span class="muted">· Tier ${r.tier}</span>
+          <div class="ans-sub"><span>${r.n} spans</span> <span>total VRI ${num(r.total)}</span> <span>${num(r.customers)} cust</span>${r.violations ? ` <span class="ttv-urgent">${r.violations} in violation</span>` : ''}</div></div>
+      </div>`).join('')}</div>`;
+  }
+  function askSubRows(rows) {
+    return `<div class="ans-list">${rows.map(r => `
+      <div class="ans-row" data-sub2="${r.su.id}">
+        <span class="vri" style="background:${vriColor(r.avg)};width:30px;height:22px;font-size:11px">${r.avg}</span>
+        <div class="ans-main"><b>${esc(r.su.name)}</b> <span class="muted">· Tier ${r.tier}</span>
+          <div class="ans-sub"><span>${r.n} spans</span> <span>total VRI ${num(r.total)}</span>${r.violations ? ` <span class="ttv-urgent">${r.violations} in violation</span>` : ''}</div></div>
+      </div>`).join('')}</div>`;
+  }
+  function askBars(rows) { // rows: {label, pct, val, color}
+    return `<div class="ans-bars">${rows.map(r => `<div class="bar-row">
+      <span>${r.label}</span>
+      <div class="track"><i style="width:${Math.max(3, Math.min(100, r.pct))}%;background:${r.color}"></i></div>
+      <b class="r">${r.val}</b></div>`).join('')}</div>`;
+  }
+  function chipRow(arr) {
+    return `<div class="chips" style="margin:10px 0 0">${arr.map(s => `<button class="chip q" data-ask="${esc(s)}">${esc(s)}</button>`).join('')}</div>`;
+  }
+  function circuitStats() {
+    return DATA.circuits.map(c => {
+      const sp = DATA.spans.filter(s => s.circuit === c.id);
+      const total = sp.reduce((a, s) => a + s.vri, 0);
+      return {
+        id: c.id, sub: c.sub, tier: c.tier, n: sp.length, total,
+        avg: Math.round(total / (sp.length || 1)),
+        customers: sp.reduce((a, s) => a + s.customers, 0),
+        violations: sp.filter(s => s.clearanceFt - s.requiredFt <= 0).length
+      };
+    });
+  }
+
+  // ---- explanations & insights ----
+  function explainSpan(s) {
+    const f = M.factorsFor(s);
+    const parts = [
+      ['encroachment on the conductor', f.enc * weights.encroachment, `${(+(s.clearanceFt - s.requiredFt)).toFixed(1)} ft vs ${s.requiredFt} ft required`],
+      ['vegetation growth', f.growth * weights.growth, `${s.species} at ${s.growthRate} ft/yr`],
+      ['wildfire threat', f.fire * weights.fire, `HFTD Tier ${s.tier}`],
+      ['criticality', f.crit * weights.criticality, `${num(s.customers)} customers · ${s.kv} kV`],
+      ['access difficulty', f.access * weights.access, `${s.slope}° slope${s.accessHard ? ', hard access' : ''}`]
+    ].sort((a, b) => b[1] - a[1]);
+    const total = parts.reduce((a, x) => a + x[1], 0) || 1, maxc = parts[0][1] || 1;
+    const rankPct = Math.max(1, Math.round(DATA.spans.filter(x => x.vri >= s.vri).length / DATA.spans.length * 100));
+    const margin = +(s.clearanceFt - s.requiredFt).toFixed(1);
+    const act = margin <= 0 ? 'an <b>immediate trim</b> — it is already inside the required clearance envelope'
+      : s.ttv <= 6 ? 'scheduling <b>now</b> — it breaches required clearance within 6 months'
+      : s.ttv <= 18 ? 'planning it into this trim cycle' : 'monitoring — it is within tolerance for now';
+    const drivers = parts.slice(0, 2).map(p => `<b>${p[0]}</b> (${p[2]})`).join(' and ');
+    const text = `<b>${s.id}</b> on ${esc(s.circuit)} scores <b>VRI ${s.vri}/100</b> — in the top ${rankPct}% of the network. `
+      + `The score is driven mainly by ${drivers}. `
+      + (margin <= 0
+        ? `It is currently <b style="color:var(--rose)">${Math.abs(margin)} ft inside</b> the required clearance. `
+        : `It has <b>${margin} ft</b> of headroom and is projected to breach in <b>${ttvText(s.ttv)}</b>. `)
+      + `Recommended: ${act}.`;
+    const bars = askBars(parts.map(p => ({
+      label: cap(p[0].split(' ')[0]), pct: Math.round(p[1] / maxc * 100),
+      val: Math.round(p[1] / total * 100) + '%', color: 'var(--violet-deep)'
+    })));
+    return reply(text, askSpanRows([s], 1) + bars);
+  }
+  function explainCircuit(c) {
+    const sp = DATA.spans.filter(s => s.circuit === c.id);
+    const avg = Math.round(sp.reduce((a, s) => a + s.vri, 0) / sp.length);
+    const viol = sp.filter(s => s.clearanceFt - s.requiredFt <= 0).length;
+    const imminent = sp.filter(s => s.ttv > 0 && s.ttv <= 6).length;
+    const cust = sp.reduce((a, s) => a + s.customers, 0);
+    const cost = sp.reduce((a, s) => a + s.cost, 0);
+    const worst = sp.slice().sort((a, b) => b.vri - a.vri)[0];
+    const subName = DATA.substations.find(x => x.id === c.sub).name;
+    const text = `<b>${c.id}</b> (${esc(subName)}, HFTD Tier ${c.tier}) has <b>${sp.length} spans</b> averaging <b>VRI ${avg}</b>, serving ${num(cust)} customers. `
+      + (viol ? `<b style="color:var(--rose)">${viol}</b> span${viol === 1 ? ' is' : 's are'} in active violation` : 'No active violations')
+      + (imminent ? `, ${imminent} more breach within 6 months` : '')
+      + `. Its worst span is <b>${worst.id}</b> (VRI ${worst.vri}). Clearing the whole circuit would cost about <b>${money(cost)}</b>.`;
+    return reply(text, askSpanRows(sp.slice().sort((a, b) => b.vri - a.vri), 6));
+  }
+  function insights() {
+    const p = portfolio();
+    const t3 = DATA.spans.filter(s => s.tier === 3);
+    const t3avg = Math.round(t3.reduce((a, s) => a + s.vri, 0) / (t3.length || 1));
+    const stale = DATA.spans.filter(s => s.yearsSinceTrim > 4).length;
+    const violCost = DATA.spans.filter(s => s.clearanceFt - s.requiredFt <= 0).reduce((a, s) => a + s.cost, 0);
+    const cs = circuitStats().sort((a, b) => b.total - a.total)[0];
+    const map = {}; DATA.spans.forEach(s => { (map[s.species] = map[s.species] || []).push(s.vri); });
+    const sp = Object.entries(map).map(([k, a]) => ({ k, avg: Math.round(a.reduce((x, y) => x + y, 0) / a.length) }))
+      .sort((a, b) => b.avg - a.avg)[0];
+    const subAgg = DATA.substations.map(su => {
+      const ss = DATA.spans.filter(s => s.sub === su.id);
+      return { su, avg: Math.round(ss.reduce((a, s) => a + s.vri, 0) / (ss.length || 1)) };
+    }).sort((a, b) => b.avg - a.avg)[0];
+    const bullets = [
+      `<b>${p.violations}</b> spans are in active clearance violation and <b>${p.imminent}</b> more breach within 6 months — about <b>${money(violCost)}</b> to clear the active ones.`,
+      `Risk concentrates in <b>HFTD Tier 3</b>: ${t3.length} spans, avg VRI ${t3avg}. <b>${esc(subAgg.su.name)}</b> carries the highest average risk (VRI ${subAgg.avg}).`,
+      `<b>${esc(cs.id)}</b> is the single riskiest circuit — total VRI ${num(cs.total)} across ${cs.n} spans.`,
+      `<b>${esc(sp.k)}</b> is the highest-risk species on average (VRI ${sp.avg}); fast regrowth keeps it near the conductor.`,
+      `<b>${num(stale)}</b> spans haven't been trimmed in over 4 years — the usual driver of encroachment risk.`
+    ];
+    return reply(`Here's what stands out across ${num(p.count)} spans on ${esc(DATA.utility.name)}:`,
+      `<ul class="ans-ul">${bullets.map(b => `<li>${b}</li>`).join('')}</ul>`);
+  }
+  function complianceAnswer() {
+    const rows = DATA.spans.filter(s => (s.clearanceFt - s.requiredFt) <= 0)
+      .sort((a, b) => (a.clearanceFt - a.requiredFt) - (b.clearanceFt - b.requiredFt));
+    const soon = DATA.spans.filter(s => s.ttv > 0 && s.ttv <= 12).length;
+    const t3 = rows.filter(s => s.tier === 3).length;
+    const text = `<b>${rows.length}</b> spans are in active CPUC GO 95 / NERC FAC-003 clearance violation (${t3} in HFTD Tier 3), with <b>${soon}</b> more projected to breach within 12 months. The full register with remediation dates lives under <b>Compliance</b>.`;
+    return reply(text, askSpanRows(rows, 6));
+  }
+  function askHelp() {
+    return reply(`I'm Meridian's on-device assistant — I answer questions about the ${num(DATA.spans.length)} line spans in this network, querying the live risk model right here in your browser (no API key, nothing leaves your device). Try one of these:`,
+      chipRow(SUGGESTIONS));
+  }
+
+  // ---- the parser ----
+  function askMeridian(raw) {
+    const q = (raw || '').toLowerCase().trim();
+    if (!q) return askHelp();
+    if (/\b(help|examples?|what can (you|i)|who are you|how do (you|i) work)\b/.test(q)) return askHelp();
+
+    // entity extraction
+    const spanM = raw.match(/spn[\s-]?(\d{3,5})/i);
+    const span = spanM ? DATA.spans.find(s => s.id.toUpperCase() === ('SPN-' + spanM[1])) : null;
+    const cidM = raw.match(/\b([a-z]{3})[\s-]?(\d{2})\b/i);
+    const circuit = cidM ? DATA.circuits.find(c => c.id === (cidM[1].toUpperCase() + '-' + cidM[2])) : null;
+    const tierM = q.match(/tier\s*([123])/);
+    const sub = DATA.substations.find(s => new RegExp('\\b' + s.id.toLowerCase() + '\\b').test(q)
+      || q.includes(s.name.toLowerCase()) || q.includes(s.name.toLowerCase().split(' ')[0]));
+    const speciesHits = [...new Set(DATA.spans.map(s => s.species))]
+      .filter(name => name.toLowerCase().split(/[\s/]+/).some(w => w.length >= 3 && q.includes(w)));
+    const winM = q.match(/(\d+)\s*(months?|mo|years?|yrs?)/);
+    const windowMonths = winM ? +winM[1] * (/(year|yr)/.test(winM[2]) ? 12 : 1) : null;
+    // strip tier / time numbers before reading a result-count, so "tier 3 spans" isn't "3 spans"
+    const qLim = q.replace(/tier\s*[123]/g, ' ').replace(/\d+\s*(?:months?|mo|years?|yrs?)/g, ' ');
+    const limM = qLim.match(/(?:top|first|show me|list|give me)\s+(\d{1,3})/) || qLim.match(/(\d{1,3})\s+(?:riskiest|highest|worst|most|spans|circuits)/);
+    const limit = limM ? Math.min(50, Math.max(1, +limM[1])) : 8;
+
+    // explanations take priority when an entity is named
+    if (span && (/why|explain|tell me about|detail|breakdown|reason|rank|about/.test(q)
+      || q.replace(/spn[\s-]?\d+/i, '').replace(/[^a-z]/g, '').length < 4)) return explainSpan(span);
+    if (circuit && (/why|explain|tell me about|detail|breakdown|summary|status|rank|about/.test(q)
+      || q.replace(/\b[a-z]{3}[\s-]?\d{2}\b/i, '').replace(/[^a-z]/g, '').length < 4)) return explainCircuit(circuit);
+
+    if (/insight|pattern|trend|observ|overview|summar(y|ise|ize)|going on|brief me|what stands out/.test(q)) return insights();
+    if (/complian|go ?95|fac.?003|regulat|audit|penalt/.test(q)) return complianceAnswer();
+    if (/hospital|school|fire station|fire-station|critical (infra|facilit|load|customer)|life ?support|essential/.test(q)) {
+      const ranked = DATA.spans.slice().sort((a, b) => (M.factorsFor(b).crit - M.factorsFor(a).crit) || (b.customers - a.customers));
+      return reply(`Meridian doesn't yet carry a named critical-facilities layer (hospitals, schools, fire stations). Today, <b>criticality</b> is modeled from customers served and voltage class — so these are the spans an outage would hurt most:`, askSpanRows(ranked, 8));
+    }
+
+    // species-comparison question (no specific species named)
+    if (/(which|what|highest|riskiest).*(species|tree)/.test(q) && !speciesHits.length) {
+      const map = {}; DATA.spans.forEach(s => { (map[s.species] = map[s.species] || []).push(s.vri); });
+      const rows = Object.entries(map).map(([k, a]) => ({ k, avg: Math.round(a.reduce((x, y) => x + y, 0) / a.length), n: a.length }))
+        .sort((a, b) => b.avg - a.avg);
+      return reply('Average risk index by dominant species:', askBars(rows.map(r =>
+        ({ label: `${esc(r.k)} <span class="muted">(${r.n})</span>`, pct: r.avg, val: r.avg, color: vriColor(r.avg) }))));
+    }
+    // substation-comparison question
+    if (/(substation|service area|district|region)/.test(q) && !sub) {
+      const rows = DATA.substations.map(su => {
+        const ss = DATA.spans.filter(s => s.sub === su.id);
+        return { su, tier: su.tier, n: ss.length, total: ss.reduce((a, s) => a + s.vri, 0), avg: Math.round(ss.reduce((a, s) => a + s.vri, 0) / (ss.length || 1)), violations: ss.filter(s => s.clearanceFt - s.requiredFt <= 0).length };
+      }).sort((a, b) => b.total - a.total);
+      return reply('Risk by substation service area, highest first:', askSubRows(rows));
+    }
+
+    // ---- generic filter + ranking ----
+    let pool = DATA.spans.slice();
+    const desc = [];
+    if (tierM) { pool = pool.filter(s => s.tier === +tierM[1]); desc.push('in Tier ' + tierM[1]); }
+    else if (/high(est)? fire|wildfire|most fire|hftd/.test(q)) { pool = pool.filter(s => s.tier === 3); desc.push('in Tier 3'); }
+    if (sub) { pool = pool.filter(s => s.sub === sub.id); desc.push('at ' + sub.name); }
+    if (circuit) { pool = pool.filter(s => s.circuit === circuit.id); desc.push('on ' + circuit.id); }
+    if (speciesHits.length) { pool = pool.filter(s => speciesHits.includes(s.species)); desc.push(speciesHits.join(' / ')); }
+    const wantViol = /violation|violat|breached|in breach|overdue/.test(q);
+    if (wantViol) { pool = pool.filter(s => s.clearanceFt - s.requiredFt <= 0); desc.push('in clearance violation'); }
+    if (windowMonths != null) { pool = pool.filter(s => s.ttv > 0 && s.ttv <= windowMonths); desc.push(`breaching within ${winM[1]} ${winM[2]}`); }
+    if (!wantViol && windowMonths == null && /immediate|urgent|right away|asap|attention|priorit/.test(q)) {
+      pool = pool.filter(s => (s.clearanceFt - s.requiredFt <= 0) || (s.ttv > 0 && s.ttv <= 6));
+      desc.push('needing immediate attention');
+    }
+    if (/\bscheduled\b/.test(q)) { pool = pool.filter(s => s.status === 'scheduled'); desc.push('scheduled'); }
+    if (/completed|finished|\bdone\b/.test(q)) { pool = pool.filter(s => s.status === 'completed'); desc.push('completed'); }
+    if (/\bopen\b|unassigned|backlog/.test(q)) { pool = pool.filter(s => s.status === 'open'); desc.push('open'); }
+    if (!speciesHits.length && /\bconifers?\b/.test(q)) { pool = pool.filter(s => s.conifer); desc.push('that are conifers'); }
+    if (/high[\s-]?risk|highest[\s-]?risk|most dangerous|dangerous|severe/.test(q)) { pool = pool.filter(s => s.vri >= 65); desc.push('rated high-risk'); }
+
+    // metric / order
+    let metric = 'vri', metricLabel = 'risk', asc = false;
+    if (/cost|cheap|expensive|\$/.test(q)) { metric = 'cost'; metricLabel = 'cost'; asc = /cheap|low|least|smallest/.test(q); }
+    else if (/customer|people|served|popul/.test(q)) { metric = 'customers'; metricLabel = 'customers served'; }
+    else if (/breach|soon|time to|earliest|urgent|immediate/.test(q)) { metric = 'ttv'; metricLabel = 'time to breach'; asc = true; }
+    pool.sort((a, b) => asc ? a[metric] - b[metric] : b[metric] - a[metric]);
+
+    // cost-total question
+    if (/total cost|how much.*(cost|trim|clear|fix|spend|address)|cost to (fix|clear|trim|address)|what would it cost/.test(q)) {
+      const totalCost = pool.reduce((a, s) => a + s.cost, 0);
+      return reply(`Clearing the <b>${num(pool.length)}</b> span${pool.length === 1 ? '' : 's'} ${desc.join(', ') || 'in the network'} would cost about <b>${money(totalCost)}</b> — against an annual VM budget of ${money(DATA.utility.annualBudget)}.`,
+        askSpanRows(pool.slice().sort((a, b) => b.vri - a.vri), 6));
+    }
+    // count question
+    if (/how many|number of|count of/.test(q)) {
+      return reply(`There ${pool.length === 1 ? 'is' : 'are'} <b>${num(pool.length)}</b> span${pool.length === 1 ? '' : 's'} ${desc.join(', ') || 'in the network'}.`,
+        askSpanRows(pool, 5));
+    }
+    // circuit-level listing
+    if (/circuit|feeder|\bline\b/.test(q) && !circuit) {
+      const byC = {}; pool.forEach(s => { (byC[s.circuit] = byC[s.circuit] || []).push(s); });
+      const rows = Object.entries(byC).map(([id, ss]) => {
+        const total = ss.reduce((a, s) => a + s.vri, 0);
+        return { id, n: ss.length, total, avg: Math.round(total / ss.length), customers: ss.reduce((a, s) => a + s.customers, 0), tier: DATA.circuits.find(c => c.id === id)?.tier, violations: ss.filter(s => s.clearanceFt - s.requiredFt <= 0).length };
+      }).sort((a, b) => metric === 'customers' ? b.customers - a.customers : b.total - a.total);
+      return reply(`Top ${Math.min(limit, rows.length)} circuit${rows.length === 1 ? '' : 's'} ${desc.join(', ') || 'by total risk'}:`, askCircuitRows(rows, limit));
+    }
+
+    // nothing recognized — guide the user instead of dumping a default list
+    const domain = /risk|trim|span|circuit|feeder|breach|violat|cost|cheap|expensive|customer|fire|tier|hftd|crew|schedul|\bopen\b|complet|insight|species|tree|substation|priorit|urgent|immediate|highest|riskiest|worst|dangerous|hospital|clear|fund|headroom|clearance/;
+    if (!desc.length && !domain.test(q)) return askHelp();
+
+    if (!pool.length) {
+      return reply(`I couldn't find any spans ${desc.join(', ') || 'matching that'}. Try rephrasing, or ask for "insights on the network".`, chipRow(SUGGESTIONS.slice(0, 3)));
+    }
+    const order = asc ? (metric === 'cost' ? 'lowest cost first' : 'breaching soonest first')
+      : `highest ${metricLabel} first`;
+    const headline = desc.length
+      ? `The ${Math.min(limit, pool.length)} span${pool.length === 1 ? '' : 's'} ${desc.join(', ')} — ${order}:`
+      : (asc ? `The ${Math.min(limit, pool.length)} spans with the ${metric === 'cost' ? 'lowest cost' : 'soonest breach'}:`
+        : `The ${Math.min(limit, pool.length)} spans carrying the most ${metricLabel}:`);
+    return reply(headline, askSpanRows(pool, limit));
+  }
+
+  function submitAsk(text) {
+    chatLog.push({ role: 'user', html: esc(text) });
+    chatLog.push({ role: 'bot', html: askMeridian(text) });
+    renderThread();
+  }
+  function renderThread() {
+    const t = $('#askThread'); if (!t) return;
+    t.innerHTML = chatLog.map(m => `<div class="msg ${m.role}"><div class="bubble">${m.html}</div></div>`).join('');
+    t.scrollTop = t.scrollHeight;
+  }
+  function renderAssistant() {
+    const v = view$(); v.className = 'view ask';
+    if (!chatLog.length) chatLog.push({ role: 'bot', html: askHelp() });
+    v.innerHTML = `
+      <div class="ask-wrap">
+        <div class="ask-note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
+          <span>On-device natural-language assistant — runs entirely in your browser. No API key, no network, nothing leaves your device. It queries the live risk model, so answers reflect your current work state and risk weights.</span>
+        </div>
+        <div class="ask-thread" id="askThread"></div>
+        <div class="ask-foot">
+          <div class="chips" id="askChips">${SUGGESTIONS.map(s => `<button class="chip q" data-ask="${esc(s)}">${esc(s)}</button>`).join('')}</div>
+          <form class="ask-input" id="askForm">
+            <input id="askInput" placeholder="Ask about spans, circuits, risk, cost, compliance…" autocomplete="off">
+            <button class="btn pri" type="submit">Ask</button>
+          </form>
+        </div>
+      </div>`;
+    renderThread();
+    $('#askForm').onsubmit = e => {
+      e.preventDefault();
+      const val = $('#askInput').value;
+      if (val.trim()) { submitAsk(val); $('#askInput').value = ''; }
+    };
+    v.onclick = e => {
+      const a = e.target.closest('[data-ask]');
+      if (a) { submitAsk(a.getAttribute('data-ask')); return; }
+      const sp = e.target.closest('[data-span]');
+      if (sp) { const id = sp.getAttribute('data-span'); go('dashboard'); openDetail(id, true); return; }
+      const c = e.target.closest('[data-circuit]');
+      if (c) { filters.q = c.getAttribute('data-circuit'); filters.tier = 'all'; filters.sub = 'all'; go('dashboard'); return; }
+      const s2 = e.target.closest('[data-sub2]');
+      if (s2) { filters.sub = s2.getAttribute('data-sub2'); filters.tier = 'all'; filters.q = ''; go('dashboard'); return; }
+    };
+  }
+
+  // ========================================================================
   //  Router
   // ========================================================================
   const TITLES = {
@@ -964,6 +1343,8 @@
     crews: ['Crew Dispatch', 'Turn risk into scheduled work'],
     compliance: ['Compliance Register', 'CPUC GO 95 / NERC FAC-003 exposure'],
     scenarios: ['Scenario Compare', 'Tune the model, compare the plans'],
+    assistant: ['Ask Meridian', 'Converse with the risk model in plain language'],
+    faq: ['FAQ', 'Frequently asked questions'],
     about: ['About Meridian', 'How the scoring works']
   };
   function go(name) {
@@ -972,7 +1353,7 @@
     const [t, s] = TITLES[name];
     $('#topTitle').textContent = t; $('#topSub').textContent = `${DATA.utility.name} · ${s}`;
     closeDetailSilently();
-    ({ dashboard: renderDashboard, optimizer: renderOptimizer, analytics: renderAnalytics, crews: renderCrews, compliance: renderCompliance, scenarios: renderScenarios, about: renderAbout }[name])();
+    ({ dashboard: renderDashboard, optimizer: renderOptimizer, analytics: renderAnalytics, crews: renderCrews, compliance: renderCompliance, scenarios: renderScenarios, assistant: renderAssistant, faq: renderFaq, about: renderAbout }[name])();
   }
   function closeDetailSilently() { const d = $('#detail'); if (d) d.classList.remove('show'); if (view !== 'dashboard') selectedId = null; }
 

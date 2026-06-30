@@ -6,9 +6,9 @@ clearance, and tells a vegetation-management planner where the next trimming dol
 down the most risk — replacing fixed "trim everything every N years" cycles with a
 data-driven, budget-aware plan.
 
-> ⚡ **Live demo:** https://sattvitripathy.github.io/meridian/
+> **Live demo:** https://sattvitripathy.github.io/meridian/
 >
-> 🔬 All data is **synthetic, seeded, and fictional** — no real utility data. The modelled
+> All data is **synthetic, seeded, and fictional** — no real utility data. The modelled
 > utility (*Sierra Crest Power & Electric*) spans the Sacramento Valley up into the Sierra
 > Nevada foothills, across the CPUC High Fire-Threat District Tier 1 → 3 gradient.
 

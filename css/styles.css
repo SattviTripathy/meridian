@@ -201,6 +201,49 @@ td.r,th.r{text-align:right}
 .legend-note{font-size:11px;color:var(--muted);margin-top:8px}
 .hr{height:1px;background:var(--line);margin:14px 0}
 .flex1{flex:1}
+
+/* ---- Ask Meridian assistant ---- */
+.view.ask{padding:18px 22px;display:flex;flex-direction:column;overflow:hidden}
+.ask-wrap{display:flex;flex-direction:column;height:100%;width:100%;max-width:920px;margin:0 auto;min-height:0}
+.ask-note{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--muted);background:var(--violet-soft);
+  border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:14px;flex:0 0 auto}
+.ask-note svg{flex:0 0 auto;width:15px;height:15px;stroke:var(--violet-deep);margin-top:1px}
+.ask-thread{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:14px;padding:2px 2px 14px}
+.msg{display:flex}
+.msg.user{justify-content:flex-end}
+.msg .bubble{border-radius:14px;padding:11px 14px;font-size:13.5px;line-height:1.55}
+.msg.user .bubble{background:var(--violet-deep);color:#fff;border-bottom-right-radius:4px;max-width:80%}
+.msg.bot .bubble{background:#fff;border:1px solid var(--line);box-shadow:var(--shadow);border-bottom-left-radius:4px;max-width:94%}
+.ans-list{margin-top:10px;display:flex;flex-direction:column;gap:3px}
+.ans-row{display:flex;gap:10px;align-items:center;padding:7px 8px;border-radius:9px;cursor:pointer;transition:.1s}
+.ans-row:hover{background:var(--violet-soft)}
+.ans-main{min-width:0;font-size:13px}
+.ans-sub{font-size:11.5px;color:var(--muted);margin-top:2px;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.ans-more{font-size:11.5px;padding:5px 8px 0}
+.ans-ul{margin:10px 0 2px;padding-left:18px;line-height:1.7;font-size:13px}
+.ans-ul li{margin-bottom:5px}
+.ans-bars{margin-top:12px;display:flex;flex-direction:column;gap:7px}
+.ask-foot{flex:0 0 auto;padding-top:10px;border-top:1px solid var(--line)}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px}
+.chip.q{cursor:pointer;background:#fff;border:1px solid var(--line);color:var(--violet-deep);font-size:12px;
+  padding:6px 11px;border-radius:16px;font-weight:600;transition:.12s}
+.chip.q:hover{border-color:var(--violet);background:var(--violet-soft)}
+.ask-input{display:flex;gap:8px}
+.ask-input input{flex:1;border:1px solid var(--line);border-radius:11px;padding:11px 14px;font:inherit;color:var(--ink);background:#fff;outline:none}
+.ask-input input:focus{border-color:var(--violet)}
+
+/* ---- FAQ ---- */
+.faq-sec{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin:22px 0 10px}
+.faq-list details{border:1px solid var(--line);border-radius:12px;background:#fff;margin-bottom:10px;box-shadow:var(--shadow);overflow:hidden}
+.faq-list summary{cursor:pointer;list-style:none;padding:14px 16px;font-weight:650;font-size:14px;
+  display:flex;justify-content:space-between;align-items:center;gap:14px}
+.faq-list summary::-webkit-details-marker{display:none}
+.faq-list summary::after{content:'+';color:var(--violet-deep);font-size:20px;font-weight:700;line-height:1;flex:0 0 auto}
+.faq-list details[open] summary::after{content:'\2013'}
+.faq-list summary:hover{color:var(--violet-deep)}
+.faq-list details[open] summary{border-bottom:1px solid var(--line2)}
+.faq-list .faq-a{padding:13px 16px 16px;font-size:13px;line-height:1.65;color:var(--ink)}
+.faq-list .faq-a code{background:var(--bg2);border-radius:5px;padding:1px 5px;font-size:12px}
 .nowrap{white-space:nowrap}
 .print-only{display:none}
 @media print{
