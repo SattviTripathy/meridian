@@ -1,5 +1,5 @@
 /* Meridian service worker — offline app shell (synthetic data, no backend). */
-const CACHE = 'meridian-v4';
+const CACHE = 'meridian-v5';
 const ASSETS = [
   './',
   './index.html',

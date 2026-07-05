@@ -21,7 +21,7 @@ h1,h2,h3{margin:0;font-weight:650}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 
 /* ---- shell ---- */
-.app{display:grid;grid-template-columns:64px 1fr;height:100vh;overflow:hidden}
+.app{display:grid;grid-template-columns:64px 1fr;height:100vh;height:100dvh;overflow:hidden}
 .rail{
   background:linear-gradient(180deg,#6d28d9,#7c3aed);color:#fff;
   display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 0;
@@ -245,6 +245,81 @@ td.r,th.r{text-align:right}
 .faq-list .faq-a{padding:13px 16px 16px;font-size:13px;line-height:1.65;color:var(--ink)}
 .faq-list .faq-a code{background:var(--bg2);border-radius:5px;padding:1px 5px;font-size:12px}
 .nowrap{white-space:nowrap}
+
+/* ============================ mobile ============================ */
+@media (max-width:900px){
+  /* shell: rail becomes an app-style bottom tab bar */
+  .app{display:flex;flex-direction:column}
+  .main{order:1;flex:1;min-height:0}
+  .rail{
+    order:2;flex-direction:row;justify-content:space-around;align-items:center;gap:0;
+    padding:6px max(6px,env(safe-area-inset-left)) calc(6px + env(safe-area-inset-bottom)) max(6px,env(safe-area-inset-right));
+    background:linear-gradient(90deg,#6d28d9,#7c3aed);
+    box-shadow:0 -4px 18px rgba(46,35,66,.22);z-index:100;
+  }
+  .rail .logo,.rail .flex1{display:none}
+  .rail button{flex:1 1 0;max-width:54px;height:44px;border-radius:10px}
+  .rail button svg{width:21px;height:21px}
+  .rail .tip{display:none}
+
+  /* topbar: stack title, let KPIs swipe */
+  .topbar{flex-direction:column;align-items:stretch;gap:8px;padding:10px 14px}
+  .topbar .spacer{display:none}
+  .kpi-strip{overflow-x:auto;gap:16px;padding-bottom:2px;scrollbar-width:none}
+  .kpi-strip::-webkit-scrollbar{display:none}
+  .kpi{flex:0 0 auto}
+  .budget-meter{width:120px}
+
+  .view{padding:14px}
+  .view>.row{flex-wrap:wrap;gap:10px}
+  /* collapse the inline two-column grids (optimizer / analytics / about) */
+  .view .grid{grid-template-columns:1fr!important}
+
+  /* dashboard: map over list */
+  .view.dash{grid-template-columns:1fr;grid-template-rows:minmax(200px,42%) minmax(0,1fr)}
+  .mapwrap{border-right:0;border-bottom:1px solid var(--line)}
+  .maptools{right:12px;max-width:none;flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+  .maptools::-webkit-scrollbar{display:none}
+  .seg,.filterbar{flex:0 0 auto}
+  .legend{padding:6px 8px;font-size:10.5px}
+  .legend .ramp{width:110px}
+  .spancount{padding:4px 9px;font-size:11px}
+
+  /* span detail becomes a full-screen sheet sliding up over everything */
+  .detail{position:fixed;inset:0;z-index:140;transform:translateY(100%);
+    transition:transform .26s cubic-bezier(.32,.72,.28,1)}
+  .detail.show{transform:translateY(0)}
+  .detail-body{padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+
+  /* crews kanban: swipeable columns with snap */
+  .kanban{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:12px;
+    margin:0 -14px;padding:2px 14px 10px;scrollbar-width:none}
+  .kanban::-webkit-scrollbar{display:none}
+  .kcol{flex:0 0 82%;max-width:330px;scroll-snap-align:start}
+
+  /* wide tables scroll inside their cards instead of crushing */
+  th,td{white-space:nowrap}
+  .card:has(> table){overflow-x:auto}
+
+  .chart-card .row{flex-wrap:wrap}
+  .weights .wrow{grid-template-columns:92px 1fr 36px}
+
+  /* assistant */
+  .view.ask{padding:12px 14px}
+  .msg.user .bubble{max-width:88%}
+  .msg.bot .bubble{max-width:100%}
+  .ask-note{font-size:11.5px;padding:8px 10px;margin-bottom:10px}
+  /* suggestion chips: one swipeable row instead of a tall stack */
+  .chips{flex-wrap:nowrap;overflow-x:auto;margin:0 -14px 10px;padding:0 14px;scrollbar-width:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chip.q{flex:0 0 auto}
+
+  /* 16px inputs stop iOS focus-zoom */
+  .filterbar input,.filterbar select,.sortsel select,.ask-input input{font-size:16px}
+
+  .toast{bottom:calc(70px + env(safe-area-inset-bottom))}
+}
+
 .print-only{display:none}
 @media print{
   .rail,.topbar,.no-print{display:none!important}
