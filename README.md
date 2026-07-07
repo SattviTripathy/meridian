@@ -12,6 +12,10 @@ data-driven, budget-aware plan.
 > utility (*Sierra Crest Power & Electric*) spans the Sacramento Valley up into the Sierra
 > Nevada foothills, across the CPUC High Fire-Threat District Tier 1 → 3 gradient.
 
+![Risk dashboard — every span scored and mapped, linked to a ranked work list](screenshots/dashboard.png)
+
+![Budget optimizer — the spend-efficiency frontier, with the same budget on a fixed cycle plotted for comparison](screenshots/optimizer.png)
+
 ---
 
 ## Why this exists
@@ -45,14 +49,20 @@ Every span scores **0–100** by blending five normalized factors (weights are t
   (clearance gauge, factor breakdown, recommended action).
 - **Budget optimizer** — greedy risk-per-dollar selection: given a budget, pick the set of
   spans that buys down the most risk / protects the most customers / covers the most Tier-3.
-  Includes the **spend-efficiency frontier** that visually argues for condition-based trimming.
+  The **spend-efficiency frontier** plots the same budget spent on a fixed
+  longest-since-trim rotation alongside the optimized plan — the gap between the two
+  markers *is* the case for condition-based trimming.
 - **Portfolio analytics** — 24-month projected-violations curve (no-action vs. funded plan),
   risk by fire tier, highest-risk circuits, risk by species, clearance-margin distribution.
 - **Crew dispatch (lite)** — turn high-risk spans into work orders, auto-assign to crews,
   track them across a Backlog → Scheduled → In-progress → Completed board.
 - **Compliance register** — auditable list of clearance violations & imminent breaches with
   GO 95 / FAC-003 references and remediation deadlines. Export CSV or print.
-- **Scenario compare** — save tuned weight/budget models and compare two head-to-head.
+- **Scenario compare** — save tuned weight/budget models, apply any saved scenario back
+  onto the live model, and compare two head-to-head.
+
+Every view is deep-linkable (`#/optimizer`, `#/compliance`, …) and so is any span
+(`#/span/SPN-1451`) — browser back/forward work as expected.
 
 ## Tech
 
@@ -66,6 +76,8 @@ Plain, dependency-light static PWA — no backend, no build step.
 - `sw.js` + `manifest.webmanifest` — installable, offline-capable PWA
 - `generate-icons.js` — zero-dependency Node PNG icon generator
 - `server.js` — tiny static server for local preview
+- `test/` — unit tests for the scoring core (`node --test`)
+- `docs/` — Node scripts that generate the Word product guide & interview brief
 
 State (work orders, tuned weights, scenarios) persists in `localStorage`. The geographic
 basemap uses Leaflet + OpenStreetMap/CARTO tiles (the schematic view works fully offline).
@@ -78,6 +90,16 @@ node server.js          # → http://localhost:5174
 ```
 
 To regenerate the app icons: `node generate-icons.js`.
+
+Run the scoring-model unit tests (no dependencies, Node ≥ 20):
+
+```bash
+node --test
+```
+
+**Deploy note:** the service worker serves navigations network-first and assets
+stale-while-revalidate, so new deploys are picked up on the next visit. Bump the
+`CACHE` version in `sw.js` when you change the precached asset list.
 
 ---
 

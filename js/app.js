@@ -309,7 +309,7 @@
     if (!list.length) { host.innerHTML = '<div class="empty" style="height:160px">No spans match the filters.</div>'; return; }
     const cap = 300;
     host.innerHTML = list.slice(0, cap).map((s, i) => `
-      <div class="wl-row${s.id === selectedId ? ' sel' : ''}" data-span="${s.id}">
+      <div class="wl-row${s.id === selectedId ? ' sel' : ''}" data-span="${s.id}" tabindex="0" role="button" aria-label="Open span ${s.id}">
         <div class="wl-rank">${i + 1}</div>
         <div class="vri" style="background:${vriColor(s.vri)}">${s.vri}</div>
         <div>
@@ -324,6 +324,11 @@
     host.onclick = e => {
       const r = e.target.closest('[data-span]');
       if (r) openDetail(r.getAttribute('data-span'), true);
+    };
+    host.onkeydown = e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const r = e.target.closest('[data-span]');
+      if (r) { e.preventDefault(); openDetail(r.getAttribute('data-span'), true); }
     };
   }
 
@@ -393,6 +398,7 @@
         </div>
       </div>`;
     d.classList.add('show');
+    if (view === 'dashboard') history.replaceState(null, '', '#/span/' + id);
     $('#dClose').onclick = closeDetail;
     $('#dDeselect').onclick = closeDetail;
     const wo = $('#dWO'); if (wo) wo.onclick = () => createWorkOrder(s);
@@ -404,16 +410,23 @@
   function closeDetail() {
     const d = $('#detail'); if (d) d.classList.remove('show');
     selectedId = null;
-    if (view === 'dashboard') { if (mapMode === 'schematic') drawSchematic(); else drawLeaflet(); renderWorklist(); }
+    if (view === 'dashboard') {
+      history.replaceState(null, '', '#/dashboard');
+      if (mapMode === 'schematic') drawSchematic(); else drawLeaflet();
+      renderWorklist();
+    }
   }
 
   // ---------- work orders / crews ----------
   function autoCrew(s) {
-    // prefer a crew based at the span's substation, else any crew in same zone tier band
-    let c = DATA.crews.find(c => c.base === s.sub);
-    if (!c) c = DATA.crews.find(c => DATA.substations.find(x => x.id === c.base)?.zone ===
-      DATA.substations.find(x => x.id === s.sub)?.zone);
-    return (c || DATA.crews[0]).id;
+    // eligible crews: based at the span's substation, else same zone, else anyone —
+    // then pick the least-loaded relative to weekly capacity
+    const zone = DATA.substations.find(x => x.id === s.sub)?.zone;
+    const atBase = DATA.crews.filter(c => c.base === s.sub);
+    const inZone = DATA.crews.filter(c => DATA.substations.find(x => x.id === c.base)?.zone === zone);
+    const pool = atBase.length ? atBase : inZone.length ? inZone : DATA.crews;
+    const load = c => DATA.spans.filter(x => x.crew === c.id && (x.status === 'scheduled' || x.status === 'in-progress')).length / c.capacity;
+    return pool.slice().sort((a, b) => load(a) - load(b))[0].id;
   }
   function createWorkOrder(s) {
     s.status = 'scheduled'; s.crew = autoCrew(s); persistWork(s);
@@ -459,18 +472,27 @@
     const fullFrontier = [{ cost: 0, risk: 0 }]; let fc = 0, fr = 0;
     for (const it of sorted) { fc += it.s.cost; fr += it.s.vri; fullFrontier.push({ cost: fc, risk: fr }); }
     const totalVri = DATA.spans.reduce((a, s) => a + s.vri, 0);
+    // baseline: the same budget spent on a fixed rotation (longest-since-trim first)
+    const cycleSorted = cands.slice().sort((a, b) => b.yearsSinceTrim - a.yearsSinceTrim);
+    let cSpent = 0, cRisk = 0;
+    for (const s of cycleSorted) {
+      if (cSpent + s.cost > optimizer.budget) continue;
+      cSpent += s.cost; cRisk += s.vri;
+    }
     optimizer.result = {
       chosen, spent,
       riskReduced: cumRisk, riskPct: Math.round(cumRisk / totalVri * 100),
       customers: chosen.reduce((a, s) => a + s.customers, 0),
       tier3: chosen.filter(s => s.tier === 3).length,
       violations: chosen.filter(s => s.clearanceFt - s.requiredFt <= 0).length,
-      frontier: fullFrontier, budgetPoint: { cost: spent, risk: cumRisk }
+      frontier: fullFrontier, budgetPoint: { cost: spent, risk: cumRisk },
+      cycle: { cost: cSpent, risk: cRisk, pct: Math.round(cRisk / totalVri * 100) }
     };
   }
   function renderOptimizer() {
     runOptimizer();
     const r = optimizer.result;
+    const toSchedule = r.chosen.filter(s => s.status === 'open');
     const v = view$(); v.className = 'view';
     const tier3total = DATA.spans.filter(s => s.tier === 3).length;
     v.innerHTML = `
@@ -489,14 +511,14 @@
           </div>
           <div class="legend-note" style="margin-top:8px">Greedy risk-per-dollar selection across all open spans. The plan buys down the most ${optimizer.objective === 'risk' ? 'portfolio risk' : optimizer.objective === 'customers' ? 'customer exposure' : 'wildfire exposure'} the budget allows.</div>
           <div class="hr"></div>
-          <button class="btn pri" id="oSend" style="width:100%">Schedule ${r.chosen.length} spans to crews</button>
+          <button class="btn pri" id="oSend" style="width:100%" ${toSchedule.length ? '' : 'disabled'}>Schedule ${toSchedule.length} span${toSchedule.length === 1 ? '' : 's'} to crews</button>
         </div>
 
         <div>
           <div class="tiles" style="margin-bottom:14px">
             <div class="tile"><div class="n">${num(r.chosen.length)}</div><div class="l">spans funded</div></div>
             <div class="tile"><div class="n">${money(r.spent)}</div><div class="l">of ${money(optimizer.budget)} used</div></div>
-            <div class="tile"><div class="n" style="color:var(--violet-deep)">${r.riskPct}%</div><div class="l">portfolio risk bought down</div></div>
+            <div class="tile"><div class="n" style="color:var(--violet-deep)">${r.riskPct}%</div><div class="l">portfolio risk bought down <span style="color:var(--muted)">(vs ${r.cycle.pct}% on a fixed cycle)</span></div></div>
             <div class="tile"><div class="n">${num(r.customers)}</div><div class="l">customers protected</div></div>
             <div class="tile"><div class="n" style="color:var(--rose)">${r.violations}</div><div class="l">violations cleared</div></div>
             <div class="tile"><div class="n">${r.tier3}<span style="font-size:14px;color:var(--muted)"> / ${tier3total}</span></div><div class="l">Tier 3 spans covered</div></div>
@@ -504,7 +526,7 @@
 
           <div class="card chart-card" style="margin-bottom:14px">
             <h3>Spend efficiency frontier</h3>
-            <div class="cap">Risk bought down per cumulative dollar. The steep early slope is why condition-based beats cycle-based trimming — the first dollars clear the worst spans. Marker = your budget.</div>
+            <div class="cap">Risk bought down per cumulative dollar. The steep early slope is why condition-based beats cycle-based trimming — the first dollars clear the worst spans. Rose marker = your budget on this plan; amber marker = the same budget spent on a fixed longest-since-trim rotation.</div>
             <div id="frontier"></div>
           </div>
 
@@ -529,8 +551,8 @@
     bud.onchange = () => renderOptimizer();
     v.querySelectorAll('.oObj').forEach(b => b.onclick = () => { optimizer.objective = b.getAttribute('data-obj'); renderOptimizer(); });
     $('#oSend').onclick = () => {
-      r.chosen.forEach(s => { if (s.status === 'open') { s.status = 'scheduled'; s.crew = autoCrew(s); persistWork(s); } });
-      toast(`${r.chosen.length} spans scheduled to crews`); renderKpis(); renderOptimizer();
+      toSchedule.forEach(s => { s.status = 'scheduled'; s.crew = autoCrew(s); persistWork(s); });
+      toast(`${toSchedule.length} span${toSchedule.length === 1 ? '' : 's'} scheduled to crews`); renderKpis(); renderOptimizer();
     };
     drawFrontier(r);
   }
@@ -543,6 +565,7 @@
     const Y = rk => H - p - rk / maxRisk * (H - 2 * p);
     const path = fr.map((pt, i) => (i ? 'L' : 'M') + X(pt.cost).toFixed(1) + ' ' + Y(pt.risk).toFixed(1)).join(' ');
     const bx = X(r.budgetPoint.cost), by = Y(r.budgetPoint.risk);
+    const cx2 = X(r.cycle.cost), cy2 = Y(r.cycle.risk);
     host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
       <line x1="${p}" y1="${H-p}" x2="${W-p}" y2="${H-p}" stroke="var(--line)"/>
       <line x1="${p}" y1="${p}" x2="${p}" y2="${H-p}" stroke="var(--line)"/>
@@ -550,6 +573,8 @@
       <path d="${path} L ${X(r.budgetPoint.cost).toFixed(1)} ${(H-p)} L ${p} ${H-p} Z" fill="url(#fg)" opacity="0.12"/>
       <defs><linearGradient id="fg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#6d28d9"/><stop offset="1" stop-color="#6d28d9" stop-opacity="0"/></linearGradient></defs>
       <line x1="${bx}" y1="${p}" x2="${bx}" y2="${H-p}" stroke="var(--rose)" stroke-dasharray="4 4"/>
+      <circle cx="${cx2.toFixed(1)}" cy="${cy2.toFixed(1)}" r="5" fill="var(--amber)"/>
+      <text x="${Math.min(cx2 + 8, W - 150).toFixed(1)}" y="${Math.min(cy2 + 16, H - p - 6).toFixed(1)}" font-size="11" fill="var(--amber)" font-weight="700">fixed cycle · ${r.cycle.pct}% risk</text>
       <circle cx="${bx}" cy="${by}" r="5" fill="var(--rose)"/>
       <text x="${Math.min(bx+8,W-120)}" y="${p+12}" font-size="11" fill="var(--rose)" font-weight="700">your budget · ${r.riskPct}% risk</text>
       <text x="${p}" y="${H-10}" font-size="11" fill="var(--muted)">$0</text>
@@ -566,7 +591,7 @@
     v.innerHTML = `
       <div class="grid" style="grid-template-columns:1fr 1fr">
         <div class="card chart-card" style="grid-column:1/-1"><h3>Projected clearance violations — 24 months</h3>
-          <div class="cap">Spans breaching required clearance if nothing is trimmed vs. if this year's optimizer plan is executed now. The plan flattens the curve; vegetation regrowth slowly bends it back up — the case for an annual cycle.</div>
+          <div class="cap">Spans breaching required clearance if nothing is trimmed vs. if this year's optimizer plan is worked off in priority order at real crew capacity. The plan flattens the curve; vegetation regrowth slowly bends it back up — the case for an annual re-plan.</div>
           <div id="burndown"></div></div>
         <div class="card chart-card"><h3>Risk by fire-threat tier</h3><div class="cap">Where the dangerous spans concentrate.</div><div id="tierDonut"></div></div>
         <div class="card chart-card"><h3>Highest-risk circuits</h3><div class="cap">Total risk index carried by each feeder.</div><div id="circuitBars"></div></div>
@@ -579,17 +604,22 @@
   function drawBurndown() {
     const host = $('#burndown'); if (!host) return;
     const months = 24;
-    // optimizer plan (current budget) trims its chosen spans at month 0
+    // optimizer plan (current budget), worked off in priority order at crew capacity
     runOptimizer();
-    const trimmed = new Set(optimizer.result.chosen.map(s => s.id));
+    const monthlyCap = Math.max(1, Math.round(DATA.crews.reduce((a, c) => a + c.capacity, 0) * 4.3));
+    const trimMonth = new Map();
+    optimizer.result.chosen.forEach((s, i) => trimMonth.set(s.id, Math.ceil((i + 1) / monthlyCap)));
     const noAction = [], withPlan = [];
     for (let m = 0; m <= months; m++) {
       let na = 0, wp = 0;
       DATA.spans.forEach(s => {
         const grow = s.growthRate * (m / 12);
         if ((s.clearanceFt - grow) - s.requiredFt <= 0) na++;
-        const base = trimmed.has(s.id) ? s.requiredFt + 14 : s.clearanceFt;
-        if ((base - grow) - s.requiredFt <= 0) wp++;
+        const tm = trimMonth.get(s.id);
+        const clear = tm != null && m >= tm
+          ? (s.requiredFt + 14) - s.growthRate * ((m - tm) / 12)   // trimmed at month tm, regrows after
+          : s.clearanceFt - grow;
+        if (clear - s.requiredFt <= 0) wp++;
       });
       noAction.push(na); withPlan.push(wp);
     }
@@ -824,14 +854,14 @@
         <div class="sec-title">Current risk-weight model <span class="muted" style="text-transform:none;letter-spacing:0">— retune to create variants</span></div>
         <div class="weights" id="weightCtrls"></div>
         <div class="row" style="margin-top:8px;gap:10px">
-          <span class="muted">Budget ${money(optimizer.budget)}</span>
+          <span class="muted" id="sBudLabel">Budget ${money(optimizer.budget)}</span>
           <input type="range" id="sBudget" min="100000" max="${DATA.utility.annualBudget}" step="50000" value="${optimizer.budget}" style="max-width:280px">
           <button class="btn sm" id="sReset">Reset weights</button>
         </div>
       </div>
       <div id="scnList"></div>`;
     renderWeightCtrls();
-    $('#sBudget').oninput = e => { optimizer.budget = +e.target.value; v.querySelector('.muted').textContent = 'Budget ' + money(optimizer.budget); };
+    $('#sBudget').oninput = e => { optimizer.budget = +e.target.value; $('#sBudLabel').textContent = 'Budget ' + money(optimizer.budget); };
     $('#sReset').onclick = () => { weights = Object.assign({}, M.DEFAULT_WEIGHTS); save(LS.weights, weights); recomputeAll(); renderScenarios(); renderKpis(); };
     $('#sSave').onclick = () => {
       const n = 'Scenario ' + (scenarios.length + 1);
@@ -858,12 +888,6 @@
   function renderScnList() {
     const host = $('#scnList'); if (!host) return;
     if (!scenarios.length) { host.innerHTML = '<div class="empty" style="height:140px">No scenarios yet — tune the weights/budget and hit “Save current as scenario”.</div>'; return; }
-    const metric = (a, key, hi) => {
-      if (!cmpA || !cmpB) return '';
-      const x = scenarios.find(s => s.id === cmpA), y = scenarios.find(s => s.id === cmpB);
-      if (!x || !y || a.id !== cmpB && a.id !== cmpA) return '';
-      return '';
-    };
     host.innerHTML = `<div class="scn-grid">${scenarios.map(sc => `
       <div class="scn ${sc.id === cmpA ? 'cmpA' : ''} ${sc.id === cmpB ? 'cmpB' : ''}">
         <button class="x" data-del="${sc.id}">&times;</button>
@@ -876,6 +900,7 @@
           <div><span class="muted">Violations cleared</span> · <b style="color:var(--rose)">${sc.violations}</b> · Tier 3: ${sc.tier3}</div>
         </div>
         <div class="row" style="gap:6px;margin-top:8px">
+          <button class="btn sm" data-apply="${sc.id}">Apply</button>
           <button class="btn sm ${sc.id===cmpA?'pri':''}" data-cmp="A" data-id="${sc.id}">Set A</button>
           <button class="btn sm ${sc.id===cmpB?'pri':''}" data-cmp="B" data-id="${sc.id}">Set B</button>
         </div>
@@ -890,6 +915,14 @@
       const id = b.getAttribute('data-id');
       if (b.getAttribute('data-cmp') === 'A') cmpA = cmpA === id ? null : id; else cmpB = cmpB === id ? null : id;
       renderScnList();
+    });
+    host.querySelectorAll('[data-apply]').forEach(b => b.onclick = () => {
+      const sc = scenarios.find(s => s.id === b.getAttribute('data-apply')); if (!sc) return;
+      weights = Object.assign({}, M.DEFAULT_WEIGHTS, sc.weights);
+      optimizer.budget = sc.budget; optimizer.objective = sc.objective;
+      save(LS.weights, weights); recomputeAll();
+      toast(`Applied “${sc.name}” — weights, budget & objective restored`);
+      renderScenarios(); renderKpis();
     });
   }
   function compareBlock() {
@@ -1041,7 +1074,7 @@
   function askSpanRows(spans, limit) {
     limit = limit || 8;
     const rows = spans.slice(0, limit).map(s => `
-      <div class="ans-row" data-span="${s.id}">
+      <div class="ans-row" data-span="${s.id}" tabindex="0" role="button" aria-label="Open span ${s.id}">
         <span class="vri" style="background:${vriColor(s.vri)};width:30px;height:22px;font-size:11px">${s.vri}</span>
         <div class="ans-main"><b>${s.id}</b> <span class="muted">· ${esc(s.circuit)}</span>
           <div class="ans-sub">${tierChip(s.tier)} <span>${esc(s.species)}</span> <span>${num(s.customers)} cust</span> <span class="${ttvClass(s.ttv)}">${ttvText(s.ttv)}</span> <span>${money(s.cost)}</span></div></div>
@@ -1052,7 +1085,7 @@
   function askCircuitRows(rows, limit) {
     limit = limit || 8;
     return `<div class="ans-list">${rows.slice(0, limit).map(r => `
-      <div class="ans-row" data-circuit="${r.id}">
+      <div class="ans-row" data-circuit="${r.id}" tabindex="0" role="button" aria-label="Show circuit ${esc(r.id)} on the dashboard">
         <span class="vri" style="background:${vriColor(r.avg)};width:30px;height:22px;font-size:11px">${r.avg}</span>
         <div class="ans-main"><b>${esc(r.id)}</b> <span class="muted">· Tier ${r.tier}</span>
           <div class="ans-sub"><span>${r.n} spans</span> <span>total VRI ${num(r.total)}</span> <span>${num(r.customers)} cust</span>${r.violations ? ` <span class="ttv-urgent">${r.violations} in violation</span>` : ''}</div></div>
@@ -1060,7 +1093,7 @@
   }
   function askSubRows(rows) {
     return `<div class="ans-list">${rows.map(r => `
-      <div class="ans-row" data-sub2="${r.su.id}">
+      <div class="ans-row" data-sub2="${r.su.id}" tabindex="0" role="button" aria-label="Show ${esc(r.su.name)} spans on the dashboard">
         <span class="vri" style="background:${vriColor(r.avg)};width:30px;height:22px;font-size:11px">${r.avg}</span>
         <div class="ans-main"><b>${esc(r.su.name)}</b> <span class="muted">· Tier ${r.tier}</span>
           <div class="ans-sub"><span>${r.n} spans</span> <span>total VRI ${num(r.total)}</span>${r.violations ? ` <span class="ttv-urgent">${r.violations} in violation</span>` : ''}</div></div>
@@ -1331,6 +1364,11 @@
       const s2 = e.target.closest('[data-sub2]');
       if (s2) { filters.sub = s2.getAttribute('data-sub2'); filters.tier = 'all'; filters.q = ''; go('dashboard'); return; }
     };
+    v.onkeydown = e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (!e.target.closest('[data-span],[data-circuit],[data-sub2]')) return;
+      e.preventDefault(); v.onclick(e);
+    };
   }
 
   // ========================================================================
@@ -1347,21 +1385,45 @@
     faq: ['FAQ', 'Frequently asked questions'],
     about: ['About Meridian', 'How the scoring works']
   };
+  let suppressHash = false;
+  function setHash(h) {
+    if (location.hash === h) return;
+    suppressHash = true; location.hash = h;
+  }
   function go(name) {
+    if (!TITLES[name]) name = 'dashboard';
     view = name;
     document.querySelectorAll('.rail button[data-view]').forEach(b => b.classList.toggle('on', b.getAttribute('data-view') === name));
     const [t, s] = TITLES[name];
     $('#topTitle').textContent = t; $('#topSub').textContent = `${DATA.utility.name} · ${s}`;
     closeDetailSilently();
     ({ dashboard: renderDashboard, optimizer: renderOptimizer, analytics: renderAnalytics, crews: renderCrews, compliance: renderCompliance, scenarios: renderScenarios, assistant: renderAssistant, faq: renderFaq, about: renderAbout }[name])();
+    setHash('#/' + name);
   }
   function closeDetailSilently() { const d = $('#detail'); if (d) d.classList.remove('show'); if (view !== 'dashboard') selectedId = null; }
+
+  // deep links: #/optimizer, #/span/SPN-1451, …
+  function route() {
+    const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
+    const spanM = h.match(/^span\/(.+)$/i);
+    if (spanM) {
+      const id = spanM[1].toUpperCase();
+      go('dashboard');
+      if (DATA.spans.some(s => s.id === id)) openDetail(id, true);
+      return;
+    }
+    go(TITLES[h] ? h : 'dashboard');
+  }
+  window.addEventListener('hashchange', () => {
+    if (suppressHash) { suppressHash = false; return; }
+    route();
+  });
 
   // ---------- boot ----------
   recomputeAll();
   document.querySelectorAll('.rail button[data-view]').forEach(b => b.onclick = () => go(b.getAttribute('data-view')));
   renderKpis();
-  go('dashboard');
+  route();
   window.addEventListener('resize', () => {
     if (view === 'analytics') renderAnalytics();
     if (view === 'optimizer' && optimizer.result) drawFrontier(optimizer.result);

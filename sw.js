@@ -1,5 +1,7 @@
-/* Meridian service worker — offline app shell (synthetic data, no backend). */
-const CACHE = 'meridian-v5';
+/* Meridian service worker — offline app shell (synthetic data, no backend).
+ * Navigations: network-first, so a deploy is picked up on the next visit.
+ * Assets: stale-while-revalidate — serve cache instantly, refresh in the background. */
+const CACHE = 'meridian-v6';
 const ASSETS = [
   './',
   './index.html',
@@ -22,15 +24,33 @@ self.addEventListener('activate', e => {
   );
 });
 
+function fetchAndCache(request) {
+  return fetch(request).then(res => {
+    const copy = res.clone();
+    caches.open(CACHE).then(c => c.put(request, copy)).catch(() => {});
+    return res;
+  });
+}
+
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   // Never cache the map tiles / leaflet CDN — let them hit the network and fail gracefully offline.
   if (url.origin !== location.origin) return;
+
+  // Navigations: network-first so new deploys land; fall back to the cached shell offline.
+  if (e.request.mode === 'navigate') {
+    e.respondWith(
+      fetchAndCache(e.request).catch(() =>
+        caches.match(e.request).then(hit => hit || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // Assets: stale-while-revalidate.
   e.respondWith(
-    caches.match(e.request).then(hit => hit || fetch(e.request).then(res => {
-      const copy = res.clone();
-      caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
-      return res;
-    }).catch(() => caches.match('./index.html')))
+    caches.match(e.request).then(hit => {
+      const net = fetchAndCache(e.request).catch(() => hit);
+      return hit || net;
+    })
   );
 });

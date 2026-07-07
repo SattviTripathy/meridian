@@ -327,3 +327,10 @@ td.r,th.r{text-align:right}
   .view{overflow:visible;padding:0}
   body{background:#fff}
 }
+
+/* ---- keyboard focus ---- */
+.wl-row:focus-visible, .ans-row:focus-visible {
+  outline: 2px solid var(--violet-deep);
+  outline-offset: -2px;
+}
+
